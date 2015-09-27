@@ -1,0 +1,64 @@
+!
+! u = grad(f)
+!
+attributes(global) subroutine grad(f, u, xfactor, yfactor, zfactor)
+  implicit none
+  real, intent(in)  :: f(-15:NX_PAD, -2:NY+3, -2:NZ+3)
+  real, intent(out) :: u(NX, NY, NZ, 3)
+  real, value  :: xfactor, yfactor, zfactor
+
+  real, shared :: fs(-2:NX_TILE+3, -2:NY_TILE+3)
+  ! Local indices
+  integer :: xli, yli
+  ! Global indices
+  integer :: xi, yi, zi
+  ! Z-wise iteration value
+  real :: behind3, behind2, behind1, current, forward1, forward2, forward3
+
+  xli = threadIdx%x
+  yli = threadIdx%y
+  xi  = (blockIdx%x - 1) * blockDim%x + threadIdx%x
+  yi  = (blockIdx%y - 1) * blockDim%y + threadIdx%y
+
+  behind2  = f(xi, yi, -2)
+  behind1  = f(xi, yi, -1)
+  current  = f(xi, yi,  0)
+  forward1 = f(xi, yi,  1)
+  forward2 = f(xi, yi,  2)
+  forward3 = f(xi, yi,  3)
+
+  do zi=1,NZ
+    behind3  = behind2
+    behind2  = behind1
+    behind1  = current
+    current  = forward1
+    forward1 = forward2
+    forward2 = forward3
+    forward3 = f(xi, yi, zi + 3)
+
+    ! Load x-y tile to shared memory
+    call syncthreads()
+    fs(xli, yli) = current
+    if (threadIdx%x <= NGHOST) then
+      fs(xli - NGHOST, yli)  = f(xi - NGHOST, yi, zi)
+      fs(xli + NX_TILE, yli) = f(xi + NX_TILE, yi, zi)
+    end if
+    if (threadIdx%y <= NGHOST) then
+      fs(xli, yli - NGHOST)  = f(xi, yi - NGHOST, zi)
+      fs(xli, yli + NY_TILE) = f(xi, yi + NY_TILE, zi)
+    end if
+    call syncthreads()
+
+    ! Compute the gradient
+    u(xi, yi, zi, 1) = &
+        xfactor * fd1D(fs(xli - 3, yli), fs(xli - 2, yli), fs(xli - 1, yli), &
+        fs(xli + 1, yli), fs(xli + 2, yli), fs(xli + 3, yli))
+
+    u(xi, yi, zi, 2) = &
+        yfactor * fd1D(fs(xli, yli - 3), fs(xli, yli - 2), fs(xli, yli - 1), &
+        fs(xli, yli + 1), fs(xli, yli + 2), fs(xli, yli + 3))
+
+    u(xi, yi, zi, 3) = &
+      zfactor * fd1D(behind3, behind2, behind1, forward1, forward2, forward3)
+  end do
+end subroutine grad

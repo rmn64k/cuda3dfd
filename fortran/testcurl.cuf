@@ -1,0 +1,37 @@
+program testCurl
+  use cudafor
+  use params
+  use fdops
+  use testfun
+  implicit none
+  type(cudaEvent) :: startEvent, stopEvent
+  integer :: istat
+  real :: u(-15:NX_PAD,-2:NY+3,-2:NZ+3, 3), omega(NX,NY,NZ,3)
+  real, device :: u_d(-15:NX_PAD,-2:NY+3,-2:NZ+3, 3), omega_d(NX,NY,NZ,3)
+  integer :: xi, yi, zi
+  type(dim3) :: tpb, blocks
+  real(kind=4) :: elapsedTime
+
+  write (*, *) 'NX, NX_PAD: ', NX, NX_PAD
+
+  istat = cudaEventCreate(startEvent)
+  istat = cudaEventCreate(stopEvent)
+
+  call init_vfield(u)
+
+  tpb = dim3(NX_TILE, NY_TILE, 1)
+  blocks = dim3(NX/NX_TILE, NY/NY_TILE, 1)
+  u_d = u
+  istat = cudaEventRecord(startEvent, 0)
+  call curl<<<blocks, tpb>>>(u_d , omega_d, 1.0/dx, 1.0/dy, 1.0/dz)
+  istat = cudaEventRecord(stopEvent, 0)
+  istat = cudaEventSynchronize(stopEvent)
+  istat = cudaEventElapsedTime(elapsedTime, startEvent, stopEvent)
+  omega = omega_d
+  call check_curl(omega)
+
+  write (*, *) 'Kernel executions time: ', elapsedTime
+  istat = cudaEventDestroy(startEvent)
+  istat = cudaEventDestroy(stopEvent)
+
+end program testCurl

@@ -1,0 +1,89 @@
+#!/bin/sh
+
+usage()
+{
+	echo "Usage: configure [var=value] ..."
+	echo
+	echo "Pertinent varibles are:"
+	echo "NX, NY, NZ       - or N to set defaults for the three."
+	echo "NX_TILE, NY_TILE - size of the cuda threadblock."
+	echo
+	echo "l1               - yes or no (default = no)"
+	echo "align            - yes or no (default = yes)"
+	echo "single           - yes or no (default = no - for double precision)"
+	echo "cm               - compute version (default 20)"
+	echo
+	echo "dir              - the directory to setup for building."
+	echo
+	exit 0
+}
+
+BASEDIR=$(dirname "$0")
+BASEDIR=$(cd "$BASEDIR"; pwd)
+
+until [ -z "$1" ]
+do
+	case "$1" in
+		*=* )
+			eval "$1"
+		;;
+		* )
+			usage
+		;;
+	esac
+	shift
+done
+
+# defaults
+N=${N:-256}
+NX=${NX:-$N}
+NY=${NY:-$N}
+NZ=${NZ:-$N}
+NX_TILE=${NX_TILE:-16}
+NY_TILE=${NY_TILE:-16}
+l1=${l1:-no}
+align=${align:-yes}
+cm=${cm:-20}
+single=${single:-no}
+dir=${dir:-.}
+
+echo N: $N
+echo NX: $NX
+echo NY: $NY
+echo NZ: $NZ
+echo NX_TILE: $NX_TILE
+echo NY_TILE: $NY_TILE
+echo l1: $l1
+echo align: $align
+echo cm: $cm
+echo single: $single
+
+[ ! -d "${dir}" ] && mkdir "${dir}"
+ln -sf "${BASEDIR}"/src/* "${dir}/"
+
+if [ $l1 = no ]; then
+	DLCM="-dlcm=cg,-v"
+else
+	DLCM="-v"
+fi
+
+if [ $single = no ]; then
+	SINGLE_PRECISION=""
+else
+	SINGLE_PRECISION="-DSINGLE_PRECISION"
+fi
+
+if [ $align = no ]; then
+	ALIGN="-DNOALIGN"
+else
+	ALIGN=""
+fi
+
+sed -e "s/@@NX@@/${NX}/g;s/@@NY@@/${NY}/g;s/@@NZ@@/${NZ}/g" \
+	-e "s/@@NX_TILE@@/${NX_TILE}/g;s/@@NY_TILE@@/${NY_TILE}/g" \
+	-e "s/@@DLCM@@/${DLCM}/g;s/@@ALIGN@@/${ALIGN}/g" \
+	-e "s/@@SINGLE_PRECISION@@/${SINGLE_PRECISION}/g" \
+	-e "s/@@CM@@/${cm}/g" \
+	< "${BASEDIR}/Makefile.in" \
+	> "${dir}/Makefile"
+

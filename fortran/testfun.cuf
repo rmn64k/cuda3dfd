@@ -1,0 +1,119 @@
+module testfun
+  use params
+
+  real, parameter :: dx = (2 * (4 * atan(1.0)) - 0.0) / (NX - 1)
+  real, parameter :: dy = (2 * (4 * atan(1.0)) - 0.0) / (NY - 1)
+  real, parameter :: dz = (2 * (4 * atan(1.0)) - 0.0) / (NZ - 1)
+
+contains
+  function fun(x, y, z)
+    real :: x, y, z
+    fun = sin(x) + cos(y) - 2 * sin(z)
+  end function fun
+
+  function fun_dx(x, y, z)
+    real :: x, y, z
+    fun_dx = cos(x)
+  end function fun_dx
+
+  function fun_dy(x, y, z)
+    real :: x, y, z
+    fun_dy = -sin(y)
+  end function fun_dy
+
+  function fun_dz(x, y, z)
+    real :: x, y, z
+    fun_dz = -2 * cos(z)
+  end function fun_dz
+
+  subroutine init_fun(f)
+    real, intent(out) :: f(-15:NX_PAD, -2:NY+3, -2:NZ+3)
+    integer :: xi, yi, zi
+
+    do zi=-2,NZ+3
+      do yi=-2,NY+3
+        do xi=-2,NX+3
+          f(xi,yi,zi) = fun(xi*dx, yi*dy, zi*dz)
+        end do
+      end do
+    end do
+  end subroutine init_fun
+
+  subroutine init_vfield(u)
+    real, intent(out) :: u(-15:NX_PAD, -2:NY+3, -2:NZ+3, 3)
+    integer :: xi, yi, zi
+    
+    do zi=-2,NZ+3
+      do yi=-2,NY+3
+        do xi=-2,NX+3
+          u(xi,yi,zi,1) = fun(xi*dx, yi*dy, zi*dz)
+        end do
+      end do
+    end do
+    u(:,:,:,2) = u(:,:,:,1)
+    u(:,:,:,3) = u(:,:,:,1)
+  end subroutine init_vfield
+
+  subroutine check_gradient(u)
+    real, intent(in) :: u(NX,NY,NZ,3)
+    real :: maxDiffX, maxDiffY, maxDiffZ
+    real :: x, y, z
+    integer :: zi, yi, xi
+
+    maxDiffX = 0.0
+    maxDiffY = 0.0
+    maxDiffZ = 0.0
+
+    do zi=1,NZ; z = zi * dz
+      do yi=1,NY; y = yi * dy
+        do xi=1,NX; x = xi * dx
+          maxDiffX = max(maxDiffX, abs(u(xi,yi,zi,1) - fun_dx(x,y,z)))
+          maxDiffY = max(maxDiffY, abs(u(xi,yi,zi,2) - fun_dy(x,y,z)))
+          maxDiffZ = max(maxDiffZ, abs(u(xi,yi,zi,3) - fun_dz(x,y,z)))
+        end do
+      end do
+    end do
+    write (*, *) maxDiffX, maxDiffY, maxDiffZ
+  end subroutine check_gradient
+
+  subroutine check_divergence(f)
+    real, intent(in) :: f(NX,NY,NZ)
+    real :: maxDiff
+    real :: x, y, z
+    integer :: zi, yi, xi
+
+    maxDiff = 0.0
+    do zi=1,NZ; z = zi * dz
+      do yi=1,NY; y = yi * dy
+        do xi=1,NX; x = xi * dx
+          maxDiff = max(maxDiff, abs(f(xi,yi,zi) - (fun_dx(x,y,z) + fun_dy(x,y,z) + fun_dz(x,y,z))))
+        end do
+      end do
+    end do
+    write (*, *) maxDiff
+  end subroutine check_divergence
+
+  subroutine check_curl(omega)
+    real, intent(in) :: omega(NX,NY,NZ,3)
+    real :: maxDiffX, maxDiffY, maxDiffZ
+    real :: x, y, z
+    integer :: zi, yi, xi
+
+    maxDiffX = 0.0
+    maxDiffY = 0.0
+    maxDiffZ = 0.0
+
+    do zi=1,NZ; z = zi * dz
+      do yi=1,NY; y = yi * dy
+        do xi=1,NX; x = xi * dx
+          maxDiffX = max(maxDiffX, abs(omega(xi,yi,zi,1) - (fun_dy(x,y,z)-fun_dz(x,y,z))))
+          maxDiffY = max(maxDiffY, abs(omega(xi,yi,zi,2) - (fun_dz(x,y,z)-fun_dx(x,y,z))))
+          maxDiffZ = max(maxDiffZ, abs(omega(xi,yi,zi,3) - (fun_dx(x,y,z)-fun_dy(x,y,z))))
+        end do
+      end do
+    end do
+    write (*, *) maxDiffX, maxDiffY, maxDiffZ
+  end subroutine check_curl
+
+end module testfun
+

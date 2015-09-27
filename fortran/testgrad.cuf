@@ -1,0 +1,40 @@
+program testGradient
+
+ use cudafor
+ use params
+ use fdops
+ use testfun
+ implicit none
+ type(cudaEvent) :: startEvent, stopEvent
+ integer :: istat
+ real :: f(-15:NX_PAD,-2:NY+3,-2:NZ+3), u(NX,NY,NZ,3)
+ real, device :: f_d(-15:NX_PAD,-2:NY+3,-2:NZ+3), u_d(NX,NY,NZ,3)
+ integer :: xi, yi, zi
+ type(dim3) :: tpb, blocks
+ real(kind=4) :: elapsedTime
+
+ write (*, *) 'NX, NX_PAD: ', NX, NX_PAD
+
+ istat = cudaEventCreate(startEvent)
+ istat = cudaEventCreate(stopEvent)
+
+ call init_fun(f)
+
+ tpb = dim3(NX_TILE, NY_TILE, 1)
+ blocks = dim3(NX/NX_TILE, NY/NY_TILE, 1)
+ f_d = f
+ istat = cudaEventRecord(startEvent, 0)
+ call grad<<<blocks, tpb>>>(f_d , u_d, 1.0/dx, 1.0/dy, 1.0/dz)
+ istat = cudaEventRecord(stopEvent, 0)
+ istat = cudaEventSynchronize(stopEvent)
+ istat = cudaEventElapsedTime(elapsedTime, startEvent, stopEvent)
+ u = u_d
+
+ call check_gradient(u)
+
+ write (*, *) 'Kernel executions time: ', elapsedTime
+ istat = cudaEventDestroy(startEvent)
+ istat = cudaEventDestroy(stopEvent)
+
+end program testGradient
+

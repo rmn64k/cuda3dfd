@@ -1,0 +1,48 @@
+NX?=@@NX@@
+NY?=@@NY@@
+NZ?=@@NZ@@
+NX_TILE?=@@NX_TILE@@
+NY_TILE?=@@NY_TILE@@
+
+PARAMS=-DNX=${NX} -DNY=${NY} -DNZ=${NZ} -DNX_TILE=${NX_TILE} -DNY_TILE=${NY_TILE} @@ALIGN@@ @@SINGLE_PRECISION@@
+
+NVCCFLAGS=-m64 -lineinfo -gencode arch=compute_@@CM@@,code=sm_@@CM@@ -O3 -Xptxas @@DLCM@@
+
+NVCC=nvcc
+
+CUDACOMPILE=${NVCC} -c ${NVCCFLAGS} ${PARAMS}
+CUDALINK=${NVCC} ${NVCCFLAGS} ${PARAMS}
+
+HEADERS=Makefile common.h field3.h device.h opt_parser.h verify_ops.h
+
+all: bench solver sample
+
+clean:
+	rm -f bench solver sample *.o
+
+device.o: device.cu boundary.cu initial.cu basic_ops.cu derivative.cu gpuomega.cu curl/*.cu div/*.cu grad/*.cu del2/*.cu ${HEADERS}
+	${CUDACOMPILE} -o $@ device.cu
+
+verify_ops.o: verify_ops.cu ${HEADERS}
+	${CUDACOMPILE} -o $@ verify_ops.cu
+
+bench.o: bench.cu ${HEADERS}
+	${CUDACOMPILE} -o $@ bench.cu
+
+bench: device.o bench.o opt_parser.o verify_ops.o
+	${CUDALINK} -o $@ $^
+
+solver.o: solver.cu ${HEADERS}
+	${CUDACOMPILE} -o $@ solver.cu
+
+opt_parser.o: opt_parser.cu opt_parser.h
+	${CUDACOMPILE} -o $@ opt_parser.cu
+
+solver: device.o opt_parser.o solver.o
+	${CUDALINK} -o $@ $^
+
+sample.o: sample.cu ${HEADERS}
+	${CUDACOMPILE} -o $@ sample.cu
+
+sample: device.o sample.o
+	${CUDALINK} -o $@ $^

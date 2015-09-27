@@ -1,0 +1,98 @@
+!
+! omega = curl(u)
+!
+attributes(global) subroutine curl(u, omega, xfactor, yfactor, zfactor)
+  implicit none
+  real, intent(in)  :: u(-15:NX_PAD, -2:NY+3, -2:NZ+3, 3)
+  real, intent(out) :: omega(NX, NY, NZ, 3)
+  real, value  :: xfactor, yfactor, zfactor
+
+  real, shared :: us(-2:NX_TILE+3, -2:NY_TILE+3, 3)
+  ! Local indices
+  integer :: xli, yli
+  ! Global indices
+  integer :: xi, yi, zi
+  ! Z-wise iteration value
+  real :: xzbehind3, xzbehind2, xzbehind1, xzcurrent, xzforward1, xzforward2, xzforward3
+  real :: yzbehind3, yzbehind2, yzbehind1, yzcurrent, yzforward1, yzforward2, yzforward3
+  real :: d1, d2
+
+  xli = threadIdx%x
+  yli = threadIdx%y
+  xi  = (blockIdx%x - 1) * blockDim%x + threadIdx%x
+  yi  = (blockIdx%y - 1) * blockDim%y + threadIdx%y
+
+  xzbehind2  = u(xi, yi, -2, 1)
+  xzbehind1  = u(xi, yi, -1, 1)
+  xzcurrent  = u(xi, yi,  0, 1)
+  xzforward1 = u(xi, yi,  1, 1)
+  xzforward2 = u(xi, yi,  2, 1)
+  xzforward3 = u(xi, yi,  3, 1)
+
+  yzbehind2  = u(xi, yi, -2, 2)
+  yzbehind1  = u(xi, yi, -1, 2)
+  yzcurrent  = u(xi, yi,  0, 2)
+  yzforward1 = u(xi, yi,  1, 2)
+  yzforward2 = u(xi, yi,  2, 2)
+  yzforward3 = u(xi, yi,  3, 2)
+
+  do zi=1,NZ
+    xzbehind3  = xzbehind2
+    xzbehind2  = xzbehind1
+    xzbehind1  = xzcurrent
+    xzcurrent  = xzforward1
+    xzforward1 = xzforward2
+    xzforward2 = xzforward3
+    xzforward3 = u(xi, yi, zi + 3, 1)
+
+    yzbehind3  = yzbehind2
+    yzbehind2  = yzbehind1
+    yzbehind1  = yzcurrent
+    yzcurrent  = yzforward1
+    yzforward1 = yzforward2
+    yzforward2 = yzforward3
+    yzforward3 = u(xi, yi, zi + 3, 2)
+
+    ! Load x-y tile to shared memory
+    call syncthreads()
+    us(xli, yli, 1) = xzcurrent
+    us(xli, yli, 2) = yzcurrent
+    us(xli, yli, 3) = u(xi, yi, zi, 3)
+    if (threadIdx%x <= NGHOST) then
+      us(xli - NGHOST, yli, 2)  = u(xi - NGHOST, yi, zi, 2)
+      us(xli + NX_TILE, yli, 2) = u(xi + NX_TILE, yi, zi, 2)
+      us(xli - NGHOST, yli, 3)  = u(xi - NGHOST, yi, zi, 3)
+      us(xli + NX_TILE, yli, 3) = u(xi + NX_TILE, yi, zi, 3)
+    end if
+    if (threadIdx%y <= NGHOST) then
+      us(xli, yli - NGHOST, 1)  = u(xi, yi - NGHOST, zi, 1)
+      us(xli, yli + NY_TILE, 1) = u(xi, yi + NY_TILE, zi, 1)
+      us(xli, yli - NGHOST, 3)  = u(xi, yi - NGHOST, zi, 3)
+      us(xli, yli + NY_TILE, 3) = u(xi, yi + NY_TILE, zi, 3)
+    end if
+    call syncthreads()
+
+    ! zdy - ydz
+    d1 = &
+        yfactor * fd1D(us(xli, yli - 3, 3), us(xli, yli - 2, 3), us(xli, yli - 1, 3), &
+        us(xli, yli + 1, 3), us(xli, yli + 2, 3), us(xli, yli + 3, 3))
+    d2 = zfactor * fd1D(yzbehind3, yzbehind2, yzbehind1, yzforward1, yzforward2, yzforward3)
+    omega(xi, yi, zi, 1) = d1 - d2
+
+    ! xdz - zdx
+    d1 = zfactor * fd1D(xzbehind3, xzbehind2, xzbehind1, xzforward1, xzforward2, xzforward3)
+    d2 = &
+        xfactor * fd1D(us(xli - 3, yli, 3), us(xli - 2, yli, 3), us(xli - 1, yli, 3), &
+        us(xli + 1, yli, 3), us(xli + 2, yli, 3), us(xli + 3, yli, 3))
+    omega(xi, yi, zi, 2) = d1 - d2
+    
+    ! ydx - xdy
+    d1 = &
+        xfactor * fd1D(us(xli - 3, yli, 2), us(xli - 2, yli, 2), us(xli - 1, yli, 2), &
+        us(xli + 1, yli, 2), us(xli + 2, yli, 2), us(xli + 3, yli, 2))
+    d2 = &
+        yfactor * fd1D(us(xli, yli - 3, 1), us(xli, yli - 2, 1), us(xli, yli - 1, 1), &
+        us(xli, yli + 1, 1), us(xli, yli + 2, 1), us(xli, yli + 3, 1))
+    omega(xi, yi, zi, 3) = d1 - d2
+  end do
+end subroutine curl

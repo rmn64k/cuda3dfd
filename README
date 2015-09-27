@@ -1,0 +1,176 @@
+Contents
+
+  1. Package overview
+
+  2. Using the code
+    2.a Compile time parameters
+    2.b Needed variables
+    2.c Needed files
+    2.d Building
+
+  3. Programming guide
+    3.a Floating point precision
+    3.b Memory
+    3.c CUDA kernels
+
+---------------------------------------------------------------------------
+
+
+1. Package overview
+
+  This package contains:
+
+  - different CUDA C++ implementations of 6th order finite difference
+    operators,
+  - a benchmark program (bench) for the operators,
+  - a solver program (solver) for Burgers' equation,
+  - a small example program (sample) computing the gradient.
+  - basic CUDA Fortran code and test programs for the gradient, divergence
+    and curl operators.
+
+
+2. Using the code
+
+  This section lists the requirements for using the code in a program.
+
+
+2.a Compile time parameters
+
+  - NX, NY, NZ       -- The number of grid points in each dimension.
+  - NX_TILE, NY_TILE -- The size of the 2D thread blocks used by the
+                        kernels.
+
+  Note that NX_TILE should divide NX evenly and the same should hold for
+  NY_TILE and NY. Setting NX_TILE and NY_TILE to 16 is generally good for
+  smaller problems and 32 for larger.
+
+
+2.b Needed variables
+
+  A program that uses this code needs to specify a few variables.
+
+  - x_0, y_0, z_0 -- The start grid point.
+  - dx, dy, dz    -- The spatial discretization.
+
+
+2.c Needed files
+
+  At least one needs to include common.h and device.h. This will also
+  include field3.h, which contains memory management code.
+
+  The device.o object file contains all GPU code and needs to be linked
+  with the program.
+
+
+2.d Building
+
+  The easiest way to build a program using this code is to add it to the
+  included Makefile. That way you can simply use the configure script and
+  make utility to compile the program. The included programs are of course
+  built this way.
+
+  The compile time parameters and some other options can be set with the
+  configure script. Run 'configure help' to see the various options.
+
+  Below is an example setting up the build for compute version 3.7 (suitable
+  for the K80) with NX=NY=NZ=256 and 32x32 sized thread blocks.
+  -------------------------------------------------------------------------
+  > ./configure dir=build N=256 cm=37 NX_TILE=32 NY_TILE=32
+  > cd build
+  > make
+  -------------------------------------------------------------------------
+
+
+3. Programming guide
+
+ This is short guide on how to use the most important systems in the code.
+ The sample and solver programs are also good places to look at to see how
+ the code is used.
+
+
+3.a Floating point precision
+
+  The code uses the user defined type 'real' which is defined as 'double'
+  by default. It can be set to 'float' by the configure script.
+
+
+3.a Memory
+
+  The memory for the 3D variable fields used in the code is arranged in
+  normal linear arrays. The field3.h file contains functions for indexing
+  into the array and for computing different strides and memory sizes. It
+  also defines thin wrapper classes for allocating and managing the memory
+  for the 3D vector fields, both on the GPU and host.
+
+  The vector fields store (NX+6)*(NY+6)*(NZ+6) values per variable. The 6
+  extra vales in each dimension are for surrounding ghost zones needed by
+  the finite difference stencil. The fields actually use more memory since
+  the memory is padded for better performance in the finite difference
+  kernels. However, the programmer does not need to account for the exact
+  memory layout since there are functions for computing the correct index.
+
+  Some memory functions:
+  - vfidx(xi, yi, zi, vi) --
+      Compute linear array index for variable vi at the grid point.
+      The spatial indices start at 0 and goes to N[X|Y|Z]+5.
+	  The ghost values are at [xi|yi|zi]=0..2,N[X|Y|Z]+3..N[X|Y|Z]+5.
+      The variable indices also start at 0.
+
+  - vfystride() -- Linear index delta to go from yi to yi + 1
+  - vfzstride() -- Linear index delta to go from zi to zi + 1
+  - vfvstride() -- Linear index delta to go from vi to vi + 1
+  - vfmemsize(nv) -- Memory size of vector field of nv variables
+
+  The vf3dgpu class:
+  - vf3dgpu(nv) -- Construct vector field of nv variables
+  - mem() -- Get the GPU memory address of the array
+  - free() -- Free the GPU memory
+  - varcount() -- Get the number of variables in this field
+  - subfield(vi, nv) -- Get a field containing nv variables starting at vi
+  - copy_to_host(dst) -- Copy from GPU to host memory
+  - copy_from_host(src) -- Copy from host to GPU memory
+
+  The vf3dhost class is similar to the vf3dgpu class but of course uses
+  host memory instead of GPU memory.
+
+  Example:
+  -------------------------------------------------------------------------
+  // Host memory vector field of 4 variables.
+  vf3dhost h(4);
+
+  // Get array pointer.
+  real *m = h.mem();
+
+  // Middle grid point for 2nd var.
+  size_t idx = vfidx(NX/2, NY/2, NZ/2, 1);
+
+  // Set the grid point to 5.0;
+  m[idx] = 5.0;
+
+  // GPU memory vector field of 2 variables.
+  vf3dgpu g(2);
+
+  // Copy the second and third variables of the host field to the GPU field.
+  g.copy_from_host(h.subfield(1,2));
+
+  // Free memory
+  h.free();
+  g.free();
+  -------------------------------------------------------------------------
+
+
+3.c CUDA kernels
+
+  See device.h for the available CUDA kernels. Almost all operators take
+  vf3dgpu objects as arguments. It is up to the programmer to make sure
+  the vector fields are of correct sizes. For instance the gradient takes
+  one vector field of one variable and one vector field of three variables
+  as arguments.
+
+  In addition to the mathematical and finite difference operators there are
+  also kernels for memory initialization, boundary conditions and clearing
+  GPU memory. Look at the sample, solver and bench programs for example use
+  of different kernels.
+
+  The finite difference kernels use the NX_TILE and NY_TILE parameters for
+  the size of their 2D thread blocks.

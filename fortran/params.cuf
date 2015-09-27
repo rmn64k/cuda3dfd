@@ -1,0 +1,6 @@
+module params
+  integer, parameter :: NX = 256, NY = 256, NZ = 256
+  integer, parameter :: NX_TILE= 16, NY_TILE = 16
+  integer, parameter :: NGHOST = 3
+  integer, parameter :: NX_PAD = ((NX + NGHOST + 15) / 16) * 16
+end module params

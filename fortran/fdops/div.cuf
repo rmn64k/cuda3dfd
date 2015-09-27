@@ -1,0 +1,66 @@
+!
+! f = div(u)
+!
+attributes(global) subroutine div(u, f, xfactor, yfactor, zfactor)
+  implicit none
+  real, intent(in)  :: u(-15:NX_PAD, -2:NY+3, -2:NZ+3, 3)
+  real, intent(out) :: f(NX, NY, NZ)
+  real, value  :: xfactor, yfactor, zfactor
+
+  real, shared :: us(-2:NX_TILE+3, -2:NY_TILE+3, 2)
+  ! Local indices
+  integer :: xli, yli
+  ! Global indices
+  integer :: xi, yi, zi
+  ! Z-wise iteration value
+  real :: behind3, behind2, behind1, current, forward1, forward2, forward3, divAcc
+
+  xli = threadIdx%x
+  yli = threadIdx%y
+  xi  = (blockIdx%x - 1) * blockDim%x + threadIdx%x
+  yi  = (blockIdx%y - 1) * blockDim%y + threadIdx%y
+
+  behind2  = u(xi, yi, -2, 3)
+  behind1  = u(xi, yi, -1, 3)
+  current  = u(xi, yi,  0, 3)
+  forward1 = u(xi, yi,  1, 3)
+  forward2 = u(xi, yi,  2, 3)
+  forward3 = u(xi, yi,  3, 3)
+
+  do zi=1,NZ
+    behind3  = behind2
+    behind2  = behind1
+    behind1  = current
+    current  = forward1
+    forward1 = forward2
+    forward2 = forward3
+    forward3 = u(xi, yi, zi + 3, 3)
+
+    ! Load x-y tile to shared memory
+    call syncthreads()
+    us(xli, yli, 1) = u(xi, yi, zi, 1)
+    if (threadIdx%x <= NGHOST) then
+      us(xli - NGHOST, yli, 1)  = u(xi - NGHOST, yi, zi, 1)
+      us(xli + NX_TILE, yli, 1) = u(xi + NX_TILE, yi, zi, 1)
+    end if
+    us(xli, yli, 2) = u(xi, yi, zi, 2)
+    if (threadIdx%y <= NGHOST) then
+      us(xli, yli - NGHOST, 2)  = u(xi, yi - NGHOST, zi, 2)
+      us(xli, yli + NY_TILE, 2) = u(xi, yi + NY_TILE, zi, 2)
+    end if
+    call syncthreads()
+
+    ! Compute the divergence
+    divAcc = &
+        xfactor * fd1D(us(xli - 3, yli, 1), us(xli - 2, yli, 1), us(xli - 1, yli, 1), &
+        us(xli + 1, yli, 1), us(xli + 2, yli, 1), us(xli + 3, yli, 1))
+
+    divAcc = divAcc + &
+        yfactor * fd1D(us(xli, yli - 3, 2), us(xli, yli - 2, 2), us(xli, yli - 1, 2), &
+        us(xli, yli + 1, 2), us(xli, yli + 2, 2), us(xli, yli + 3, 2))
+
+    divAcc = divAcc + zfactor * fd1D(behind3, behind2, behind1, forward1, forward2, forward3)
+
+    f(xi, yi, zi) = divAcc
+  end do
+end subroutine div

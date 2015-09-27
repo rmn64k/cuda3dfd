@@ -1,0 +1,23 @@
+module fdops
+  use cudafor
+  use params
+
+  real, parameter :: d1Coeff3 =  1.0 / 60.0
+  real, parameter :: d1Coeff2 = -3.0 / 20.0
+  real, parameter :: d1Coeff1 =  3.0 /  4.0
+
+contains
+  !
+  !6th order central difference stencil (without d{xyz} factor) in 1D.
+  !
+  attributes(device) function fd1D(m3h, m2h, m1h, p1h, p2h, p3h)
+    real, value :: m3h, m2h, m1h, p1h, p2h, p3h
+
+    fd1D = d1Coeff3 * (p3h - m3h) + d1Coeff2 * (p2h - m2h) + d1Coeff1 * (p1h - m1h)
+  end function fd1D
+
+  include 'fdops/grad.cuf'
+  include 'fdops/div.cuf'
+  include 'fdops/curl.cuf'
+
+end module fdops
